@@ -18,6 +18,8 @@ from timm.models.vision_transformer import _load_weights
 
 import math
 
+from transformers.modeling_outputs import BaseModelOutput
+
 from mamba_ssm.modules.mamba_simple import Mamba
 
 try:
@@ -276,6 +278,8 @@ class VisionMamba(nn.Module):
         # output head
         self.norm_f = (nn.LayerNorm if not rms_norm else RMSNorm)(embed_dim, eps=norm_epsilon, **factory_kwargs)
 
+        # self.fc = nn.Linear(self.num_features, 768)
+
         # original init
         self.apply(segm_init_weights)
         self.head.apply(segm_init_weights)
@@ -308,6 +312,8 @@ class VisionMamba(nn.Module):
         _load_weights(self, checkpoint_path, prefix)
 
     def forward_features(self, x, inference_params=None):
+        # x shape: B, C, T, H, W -> permute to B,T,C,H,W
+        x = x.permute(0,2,1,3,4)
         x = self.patch_embed(x)
         B, C, T, H, W = x.shape
         x = x.permute(0, 2, 3, 4, 1).reshape(B * T, H * W, C)
@@ -361,10 +367,15 @@ class VisionMamba(nn.Module):
 
         # return only cls token
         return hidden_states[:, 0, :]
+        # return hidden_states
 
-    def forward(self, x, inference_params=None):
-        x = self.forward_features(x, inference_params)
+    def forward(self, pixel_values, inference_params=None, output_attentions=None,
+             output_hidden_states=None, return_dict=True):
+        x = self.forward_features(pixel_values, inference_params)
+        # print("feature shape:", x.shape)
         x = self.head(self.head_drop(x))
+        # x = self.fc(x)
+        # x = BaseModelOutput(last_hidden_state=x)
         return x
 
 
@@ -470,8 +481,8 @@ if __name__ == '__main__':
     img_size = 224
 
     # To evaluate GFLOPs, pleaset set `rms_norm=False` and `fused_add_norm=False`
-    model = videomamba_middle(num_frames=num_frames).cuda()
-    flops = FlopCountAnalysis(model, torch.rand(1, 3, num_frames, img_size, img_size).cuda())
-    s = time.time()
-    print(flop_count_table(flops, max_depth=1))
-    print(time.time()-s)
+    model = videomamba_middle(pretrained=True, num_frames=num_frames).cuda()
+    # flops = FlopCountAnalysis(model, torch.rand(1, 3, num_frames, img_size, img_size).cuda())
+    # s = time.time()
+    # print(flop_count_table(flops, max_depth=1))
+    # print(time.time()-s)
